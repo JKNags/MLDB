@@ -27,7 +27,7 @@
 			/******************
 				Socket Events
 			*******************/
-			var socket = io.connect('https://' + document.domain + ':' + location.port + '/mldbns');
+			var socket = io.connect('http://' + document.domain + ':' + location.port + '/mldbns');
 			console.log("Connecting to socket mldbns");
 			
 			socket.on('message_event', function(msg) {

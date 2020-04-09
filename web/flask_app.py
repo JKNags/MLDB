@@ -10,7 +10,7 @@ import select
 from threading import Lock 
 from flask import Flask, render_template, request, send_file, send_from_directory, make_response
 from flask_cors import CORS, cross_origin
-from flask_socketio import SocketIO # as emit
+from flask_socketio import SocketIO #as emit
 from werkzeug.utils import secure_filename
 from gevent import monkey
 monkey.patch_time()
@@ -35,17 +35,18 @@ def is_numeric(x):
 # Socket IO
 ######################
 
-socketio = SocketIO(app, _async_mode='gevent', logger=True, engineio_logger=True, ping_timeout=60)
+socketio = SocketIO(app, _async_mode='gevent', logger=True, 
+    engineio_logger=True, ping_timeout=60)
 
 @socketio.on('connect', namespace='/mldbns')
 def socket_connect():
-    emit('message_event', {'data':'Connected to Server'} )
+    socketio.emit('message_event', {'data':'Connected to Server'}, namespace='/mldbns')
 
     print("Client connected to mldbns server")
 
 @socketio.on('button_event', namespace='/mldbns')
 def socket_message(message):
-    emit('message_event', {'data':'Beginning DB Query - %s' % message['type']} )
+    socketio.emit('message_event', {'data':'Beginning DB Query - %s' % message['type']}, namespace='/mldbns')
     print("Client issued button event type=(%s) - data: %s" % (message['type'],message['data']))
 
     try:
@@ -80,7 +81,7 @@ def socket_message(message):
                                             'name':row[1]})
                     except Exception:
                         pass
-                emit('refresh_dataset_event', {'data':dataset_list})
+                socketio.emit('refresh_dataset_event', {'data':dataset_list}, namespace='/mldbns')
             else:
                 print('Refresh Dataset rows is None')    
 
@@ -121,7 +122,7 @@ def socket_message(message):
                                             'dataset_name':row[7]})
                     except Exception:
                         pass
-                emit('refresh_network_event', {'data':network_list})
+                socketio.emit('refresh_network_event', {'data':network_list}, namespace='/mldbns')
             else:
                 print('Refresh Network rows is None')    
             
@@ -143,9 +144,9 @@ def socket_message(message):
                 break #end of validations
 
             if (error_message is not None):
-                emit('message_event', {'data' : error_message} )
+                socketio.emit('message_event', {'data' : error_message}, namespace='/mldbns')
             elif (query == ""):
-                emit('message_event', {'data' : 'Cannot execute empty query'} )
+                socketio.emit('message_event', {'data' : 'Cannot execute empty query'}, namespace='/mldbns')
             else:
                 db_execute(socketio, query, query_values, _async)
 
@@ -166,9 +167,9 @@ def socket_message(message):
                 break #end of validations
 
             if (error_message is not None):
-                emit('message_event', {'data' : error_message} )
+                socketio.emit('message_event', {'data' : error_message}, namespace='/mldbns')
             elif (query == ""):
-                emit('message_event', {'data' : 'Cannot execute empty query'} )
+                socketio.emit('message_event', {'data' : 'Cannot execute empty query'}, namespace='/mldbns')
             else:
                 db_execute(socketio, query, query_values, _async)
 
@@ -189,9 +190,9 @@ def socket_message(message):
                 break #end of validations
 
             if (error_message is not None):
-                emit('message_event', {'data' : error_message} )
+                socketio.emit('message_event', {'data' : error_message}, namespace='/mldbns')
             elif (query == ""):
-                emit('message_event', {'data' : 'Cannot execute empty query'} )
+                socketio.emit('message_event', {'data' : 'Cannot execute empty query'}, namespace='/mldbns')
             else:
                 db_execute(socketio, query, query_values, _async)
                 socket_message({'type':'refresh_network', 'data':''}) # force refresh
@@ -223,9 +224,9 @@ def socket_message(message):
                 break #end of validations
 
             if (error_message is not None):
-                emit('message_event', {'data' : error_message} )
+                socketio.emit('message_event', {'data' : error_message}, namespace='/mldbns')
             elif (query == ""):
-                emit('message_event', {'data' : 'Cannot execute empty query'} )
+                socketio.emit('message_event', {'data' : 'Cannot execute empty query'}, namespace='/mldbns')
             else:
                 db_execute(socketio, query, query_values, _async)
                 socket_message({'type':'refresh_dataset', 'data':''}) # force refresh
@@ -284,9 +285,9 @@ def socket_message(message):
                 break #end of validations
 
             if (error_message is not None):
-                emit('message_event', {'data' : error_message} )
+                socketio.emit('message_event', {'data' : error_message}, namespace='/mldbns')
             elif (query == ""):
-                emit('message_event', {'data' : 'Cannot execute empty query'} )
+                socketio.emit('message_event', {'data' : 'Cannot execute empty query'}, namespace='/mldbns')
             else:
                 db_execute(socketio, query, query_values, _async)
                 socket_message({'type':'refresh_network', 'data':''}) # force refresh
@@ -333,9 +334,9 @@ def socket_message(message):
                 break #end of validations
 
             if (error_message is not None):
-                emit('message_event', {'data':error_message} )
+                socketio.emit('message_event', {'data':error_message}, namespace='/mldbns')
             elif (query == ""):
-                emit('message_event', {'data':'Cannot execute empty query'} )
+                socketio.emit('message_event', {'data':'Cannot execute empty query'}, namespace='/mldbns')
             else:
                 db_execute(socketio, query, query_values, _async)
 
@@ -361,9 +362,9 @@ def socket_message(message):
                 break #end of validations
 
             if (error_message is not None):
-                emit('message_event', {'data' : error_message} )
+                socketio.emit('message_event', {'data' : error_message}, namespace='/mldbns')
             elif (query == ""):
-                emit('message_event', {'data' : 'Cannot execute empty query'} )
+                socketio.emit('message_event', {'data' : 'Cannot execute empty query'}, namespace='/mldbns')
             else:
                 db_execute(socketio, query, query_values, _async)
 
@@ -414,9 +415,9 @@ def socket_message(message):
                 break #end of validations
 
             if (error_message is not None):
-                emit('message_event', {'data':error_message} )
+                socketio.emit('message_event', {'data':error_message}, namespace='/mldbns')
             elif (query == ""):
-                emit('message_event', {'data':'Cannot execute empty query'} )
+                socketio.emit('message_event', {'data':'Cannot execute empty query'}, namespace='/mldbns')
             else:
                 test_list = []
 
@@ -434,22 +435,23 @@ def socket_message(message):
                                                 'type':row[7]})
                         except Exception:
                             pass
-                    emit('test_network_event', {'data':test_list})
+                    socketio.emit('test_network_event', {'data':test_list}, namespace='/mldbns')
                 else:
                     print('Test Network rows is None')
         
     except KeyError as e:
         print('! Button Event Exception (Key Error): %s' % e)
-        emit('message_event', {'data':'Button Input Error (Key Error): %s' % e} )
+        socketio.emit('message_event', {'data':'Button Input Error (Key Error): %s' % e}, namespace='/mldbns')
     except Exception as e:
         print('! Button Event Exception: %s' % e)
-        emit('message_event', {'data':'Button Input Error: %s' % e} )
+        socketio.emit('message_event', {'data':'Button Input Error: %s' % e}, namespace='/mldbns')
 
 
 ######################
 # /mldb HOME
 ######################
 @app.route('/mldb', methods=['GET'])
+@cross_origin()
 def mldb_home():
     network_list = []
     dataset_list = []
@@ -563,13 +565,15 @@ if __name__ == '__main__':  # Run App
     #context.use_privatekey_file(pkey)
     #context.use_certificate_file(cert)
     #socketio.run(app)
-    #app.run(debug=True, host='0.0.0.0', port=5000, ssl_context=(cert,pkey))
+    
     socketio.run(app, 
                     debug=True,
                     host='0.0.0.0',
-                    port=5000 
+                    port=5000
                     #,certfile=cert,
                     #keyfile=pkey
                     )
-    #socketio.run(app, debug=False, host='0.0.0.0', ssl_context=(cert,pkey))
+
+    # Default Flask run
+    #app.run(debug=True, host='0.0.0.0', port=5000, ssl_context=(cert,pkey))
     
