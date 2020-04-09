@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<!-- Required meta tags -->
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<title>MLDB Home</title>
+
+	<link href="styles.css" href="{{ url_for('static', filename='css/main.css') }}">
+	<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/css/bootstrap.min.css" 
+			integrity="sha384-GJzZqFGwb1QTTN6wy59ffF1BuGJpLSa9DkKMp0DgiMDm4iYMj70gZWKYbI706tWS" crossorigin="anonymous">
+	<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.6.3/css/all.css" 
+			integrity="sha384-UHRtZLI+pbxtHCWp1t77Bi1L4ZtiqrqD80Kn4Z8NTSRyMA2Fd33n5dQ8lWUE00s/" crossorigin="anonymous">
+	<link rel="stylesheet" href="https://unpkg.com/bootstrap-table@1.14.2/dist/bootstrap-table.min.css">
+	
+	<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+	<script src="//code.jquery.com/jquery-3.3.1.min.js"></script>
+	<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/socket.io/1.3.6/socket.io.min.js"></script>
+	<script src="https://unpkg.com/bootstrap-table@1.14.2/dist/bootstrap-table.min.js"></script>
+
+	<script>
+		$(document).ready(function(){
+
+			deselect_network();
+			deselect_dataset();
+
+			/******************
+				Socket Events
+			*******************/
+			var socket = io.connect('https://' + document.domain + ':' + location.port + '/mldbns');
+			console.log("Connecting to socket mldbns");
+			
+			socket.on('message_event', function(msg) {
+				if(typeof(msg.length) != 'number') { // force message to be an array
+					msg = [msg];
+				}
+				console.log("Received message: len=" + msg.length + ", type:" + typeof(msg));
+
+				for (idx = 0; idx < msg.length; idx++) {
+					//console.log("  Message["+idx+"]: " + msg[idx].data);
+					$('#messages').prepend($('<option>', {
+						value: 1,
+						text: msg[idx].data,
+						title: msg[idx].data
+					}));
+				}
+			});
+
+			socket.on('refresh_dataset_event', function(msg) {
+				$('#datasets').find('tbody').empty();
+				for (idx = 0; idx < msg.data.length; idx++) {
+					var row_data = '<tr class="clickable-row" >'
+									+ '<td class="bs-checkbox" style="width: 36px; "><label><input name="dataset_id" type="radio" value="' + msg.data[idx]['id'] + '"></label></td><td>'
+									+ msg.data[idx]['id'] + '</td><td>'
+									+ msg.data[idx]['name'] + '</td></tr>';
+					$('#datasets').find('tbody').append(row_data)
+				}
+			});
+
+			socket.on('refresh_network_event', function(msg) {
+				$('#networks').find('tbody').empty();
+				for (idx = 0; idx < msg.data.length; idx++) {
+					var row_data = '<tr class="clickable-row" >'
+									+ '<td class="bs-checkbox" style="width: 36px; "><label><input name="network_id" type="radio" value="' + msg.data[idx]['id'] + '"></label></td><td>'
+									+ msg.data[idx]['id'] + '</td><td>'
+									+ msg.data[idx]['name'] + '</td><td>'
+									+ msg.data[idx]['dataset_name'] + '</td><td>'
+									+ msg.data[idx]['layer_sizes'] + '</td><td>'
+									+ msg.data[idx]['activation_functions'] + '</td><td>'
+									+ msg.data[idx]['loss_function'] + '</td></tr>';
+					$('#networks').find('tbody').append(row_data)
+				}
+			});
+
+			socket.on('test_network_event', function(msg) {
+				$('#test_results').find('tbody').empty();
+
+				style = '';
+				for (idx = 0; idx < msg.data.length; idx++) {	
+					if (msg.data[idx]['type'] == 1)
+						style = 'style="background-color: lightgreen;"';
+					var row_data = '<tr ' + style + '><td>'
+									+ isnull(msg.data[idx]['test_sample_id'],'') + '</td><td>'
+									+ isnull(msg.data[idx]['output_num'],'') + '</td><td>'
+									+ round(msg.data[idx]['label_value'], 3) + '</td><td>'
+									+ round(msg.data[idx]['output_value'], 3) + '</td><td>'
+									+ round(msg.data[idx]['sm_output_value'], 3) + '</td><td>'
+									+ round(msg.data[idx]['loss'], 3) + '</td><td>'
+									+ round(msg.data[idx]['accuracy'], 3) + '</td></tr>';
+					$('#test_results').find('tbody').append(row_data)
+					style = '';
+				}
+			});
+
+
+			/******************
+				Button Presses
+			*******************/
+			//$('#networks > tbody > tr').on('click', '.clickable-row', function(event) {
+			$("body").on('click', '.clickable-row', function() {
+				console.log("Clicked Row ID:" + get_selected_network() );
+
+				//$(this).addClass('info').siblings().removeClass('info');
+				$(this).siblings().css('background-color','').find(':input').prop('checked', false);
+				$(this).css('background-color','lightcyan').find(':input').prop('checked', true);;
+			});
+
+			$('#btn_test1').click(function(event) {
+				socket.emit('button_event', {'type':'test', 'data':'TestButtonClick'});
+				return false;
+			});
+
+			$('#btn_test2').click(function(event) {
+				console.log( "Test Button" );
+				console.log( "Table Selected Net ID: " + get_selected_network() );
+				return false;
+			});
+
+			$('#btn_insert_dataset').click(function(event) {
+				data = {'dataset_name':$('#dataset_name').val(),
+						'dataset_source_table_name':$('#dataset_source_table_name').val(),
+						'feature_column_names':$('#feature_column_names').val(),
+						'label_column_names':$('#label_column_names').val(),
+						'normalize_features':$('#normalize_features').val(),
+						'normalize_labels':$('#normalize_labels').val()};
+				socket.emit('button_event', {'type':'insert_dataset', 'data':data});
+				return false;
+			});
+
+			$('#btn_refresh_dataset').click(function(event) {
+				socket.emit('button_event', {'type':'refresh_dataset', 'data':''});
+				return false;
+			});
+
+			$('#btn_delete_dataset').click(function(event) {
+				socket.emit('button_event', {'type':'delete_dataset', 'data':{'dataset_id':get_selected_dataset()}});
+				return false;
+			});
+
+			$('#btn_refresh_network').click(function(event) {
+				socket.emit('button_event', {'type':'refresh_network', 'data':''});
+				return false;
+			});
+
+			$('#btn_reset_network').click(function(event) {
+				socket.emit('button_event', {'type':'reset_network', 'data':{'network_id':get_selected_network()}});
+				return false;
+			});
+
+			$('#btn_delete_network').click(function(event) {
+				socket.emit('button_event', {'type':'delete_network', 'data':{'network_id':get_selected_network()}});
+				return false;
+			});
+
+			$('#btn_insert_network').click(function(event) {
+				data = {'network_name':$('#network_name').val(),
+						'dataset_id':$('#dataset_id').val(),
+						'loss_function':$('#loss_function').val(),
+						'num_inputs':$('#num_inputs').val(),
+						'input_activation_function':$('#input_activation_function').val(),
+						'num_hidden_layers':$('#num_hidden_layers').val(),
+						'num_hidden_nodes':$('#num_hidden_nodes').val(),
+						'hidden_activation_function':$('#hidden_activation_function').val(),
+						'num_output_nodes':$('#num_output_nodes').val(),
+						'output_activation_function':$('#output_activation_function').val()};
+				socket.emit('button_event', {'type':'insert_network', 'data':data});
+				return false;
+			});
+
+			$('#btn_train_network').click(function(event) {
+				data = {'network_id':get_selected_network(),
+						'num_epochs':$('#num_epochs').val(),
+						'batch_size':$('#batch_size').val(),
+						'learning_rate':$('#learning_rate').val()};
+				socket.emit('button_event', {'type':'train_network', 'data':data});
+				return false;
+			});
+
+			$('#btn_set_training_samples').click(function(event) {
+				data = {'network_id':get_selected_network(),
+						'percent_testing':$('#percent_testing').val()};
+				socket.emit('button_event', {'type':'set_training_samples', 'data':data});
+				return false;
+			});
+
+			$('#btn_test_network').click(function(event) {
+				data = {'network_id':get_selected_network(),
+						'show_samples':$('#show_samples').prop('checked'), //val(),
+						'test_samples_only':$('#test_samples_only').prop('checked'), //val(),
+						'num_samples':$('#num_samples').val()};
+				socket.emit('button_event', {'type':'test_network', 'data':data});
+				return false;
+			});
+
+			$('#btn_clear_messages').click(function(event) {
+				$('#messages').empty();
+				return false;
+			});
+		});
+	</script>
+
+</head>
+<body>
+	<div class="container center">
+		<div class="text-center">
+			<h3>MLDB Home</h3>
+		</div>
+
+		<!-- DATASET / NETWORK SECTION-->
+
+		<div class="card">
+			<div class="card-header">
+				<div class="tab">
+					<button id="btnTabDataset" class="btn btn-outline-primary tablinkssection" onclick="openSectionTab(event, 'tabDataset')">Dataset</button>
+					<button id="btnTabNetwork" class="btn btn-outline-primary tablinkssection" onclick="openSectionTab(event, 'tabNetwork')">Network</button>
+				  </div>
+			</div>
+			<div class="card-body">
+				<!--<div style="overflow: scroll; height:400px; width:100%; overflow-x: hidden;">-->
+				<div>
+					<div class="row pl-4 pr-4 pb-1">
+						<div class="col-12">
+
+							<!-- DATASET SECTION -->
+
+							<div id="tabDataset" class="tabcontentsection">
+								<div class="card border-primary">
+									<div class="card-body">
+										<div class="row form-group">
+											<div class="col-10 offset-1 text-center">
+												<h5>Datasets</h5>
+												<div class="table-responsive table-bordered table-condensed" style="height:260px">
+													<table id="datasets" class="table table-hover table-sm" >
+														<thead class="thead-light">
+															<tr>
+																<th></th>
+																<th data-field="id">ID</th>
+																<th>Name</th>
+															</tr>
+														</thead>
+														<tbody>
+															{% for dataset in dataset_list %}
+															<tr class="clickable-row">
+																<td class="bs-checkbox" style="width: 36px; ">
+																	<label>
+																		<input name="dataset_id" type="radio" value="{{ dataset['id'] }}">
+																	</label>
+																</td>
+																<td>{{ dataset['id'] }}</td>
+																<td>{{ dataset['name'] }}</td>
+															</tr>
+															{% endfor %}
+														</tbody>
+													</table>
+												</div>
+											</div>
+											<div class="col-1 text-center d-flex flex-column align-items-center justify-content-around">
+												<button id="btn_refresh_dataset" class="btn btn-primary mt-1">Refresh</button>
+												<button id="btn_delete_dataset" class="btn btn-danger mt-1">Delete</button>
+											</div>
+										</div>
+									</div>
+								</div>
+								
+								<!-- DATASET EDIT SECTION -->
+															
+								<div class="card mt-2">
+									<div class="card-header">
+										<div class="tab">
+											<button id="btnTabDatasetInsert" class="btn btn-outline-primary tablinksdataset" onclick="openDatasetTab(event, 'tabDatasetInsert')">Insert</button>
+										</div>
+									</div>
+									<div class="card-body">
+										<div style="overflow: scroll; height:400px; width:100%; overflow-x: hidden;">
+											<div class="row pl-4 pr-4">
+												<div class="col-12">
+													<div id="tabDatasetInsert" class="tabcontentdataset">
+														<div class="row form-group">
+															<div class="col-3">
+																<label>Source Table Name</label>
+																<input id="dataset_source_table_name" name="source_table_name" type="text" class="form-control" />
+															</div>	
+															<div class="col-3">
+																<label>Dataset Name</label>
+																<input id="dataset_name" name="dataset_name" type="text" class="form-control" />
+															</div>
+															<div class="col-3">
+																<label>Normalize Features</label>
+																<select id="normalize_features" class="form-control">
+																	{% for norm in normalization_list %}
+																	<option value="{{ norm.name }}">{{ norm.display_name }}</option>
+																	{% endfor %}
+																</select>
+															</div>
+															<div class="col-3">
+																<label>Normalize Labels</label>
+																<select id="normalize_labels" class="form-control">
+																	{% for norm in normalization_list %}
+																	<option value="{{ norm.name }}">{{ norm.display_name }}</option>
+																	{% endfor %}
+																</select>
+															</div>
+														</div>
+														<div class="row form-group">
+															<div class="col-12">
+																<label>Feature Column List (comma delimited)</label>
+																<input id="feature_column_names" name="feature_column_names" type="text" class="form-control" />
+															</div>
+														</div>
+														<div class="row form-group">
+															<div class="col-12">
+																<label>Label Column List (comma delimited)</label>
+																<input id="label_column_names" name="label_column_names" type="text" class="form-control" />
+															</div>
+														</div>
+														<div class="row form-group d-flex align-items-end">
+															<div class="col-1 offset-11">
+																<button id="btn_insert_dataset" class="btn btn-primary">Insert</button>
+															</div>
+														</div>
+													</div>
+												</div>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+
+							<!-- NETWORK SECTION -->
+
+							<div id="tabNetwork" class="tabcontentsection">
+								<div class="card border-primary">
+									<div class="card-body">
+										<div class="row form-group">
+											<div class="col-10 offset-1 text-center">
+												<h5>Networks</h5>
+												<div class="table-responsive table-bordered table-condensed" style="height:260px">
+													<table id="networks" class="table table-hover table-sm" >
+														<thead class="thead-light">
+															<tr>
+																<th></th>
+																<th data-field="id">ID</th>
+																<th>Name</th>
+																<th>Dataset</th>
+																<th>Layers</th>
+																<th>Activation Fns</th>
+																<th>Loss Fn</th>
+															</tr>
+														</thead>
+														<tbody>
+															{% for network in network_list %}
+															<tr class="clickable-row">
+																<td class="bs-checkbox" style="width: 36px; ">
+																	<label>
+																		<input name="network_id" type="radio" value="{{ network['id'] }}">
+																	</label>
+																</td>
+																<td>{{ network['id'] }}</td>
+																<td>{{ network['name'] }}</td>
+																<td>{{ network['dataset_name'] }}</td>
+																<td>{{ network['layer_sizes'] }}</td>
+																<td>{{ network['activation_functions'][0] + ',' + network['activation_functions'][1] + ',' + network['activation_functions'][2] }}</td>
+																<td>{{ network['loss_function'] }}</td>
+															</tr>
+															{% endfor %}
+														</tbody>
+													</table>
+												</div>
+											</div>
+											<div class="col-1 text-center d-flex flex-column align-items-center justify-content-around">
+												<button id="btn_refresh_network" class="btn btn-primary mt-1">Refresh</button>
+												<button id="btn_reset_network" class="btn btn-warning mt-1">Reset</button>
+												<button id="btn_delete_network" class="btn btn-danger mt-1">Delete</button>
+											</div>
+										</div>
+									</div>
+								</div>			
+
+								<!-- NETWORK EDIT SECTION -->
+						
+								<div class="card mt-2">
+									<div class="card-header">
+										<div class="tab">
+											<button id="btnTabNetworkInsert" class="btn btn-outline-primary tablinksnetwork" onclick="openNetworkTab(event, 'tabNetworkInsert')">Insert</button>
+											<button id="btnTabNetworkTrain" class="btn btn-outline-primary tablinksnetwork" onclick="openNetworkTab(event, 'tabNetworkTrain')">Train</button>
+											<button id="btnTabNetworkTest" class="btn btn-outline-primary tablinksnetwork" onclick="openNetworkTab(event, 'tabNetworkTest')">Test</button>
+										</div>
+									</div>
+									<div class="card-body">
+										<div style="overflow: scroll; height:400px; width:100%; overflow-x: hidden;">
+											<div class="row pl-4 pr-4">
+												<div class="col-12">
+													<div id="tabNetworkInsert" class="tabcontentnetwork">
+														<div class="row form-group">
+															<div class="col-3">
+																<label>Name</label>
+																<input id="network_name" name="network_name" type="text" class="form-control" />
+															</div>
+															<div class="col-3">
+																<label>Dataset</label>
+																<select id="dataset_id" class="form-control">
+																	{% for dataset in dataset_list %}
+																	<option value="{{ dataset.id }}">{{ dataset.display_name }}</option>
+																	{% endfor %}
+																</select>
+															</div>
+															<div class="col-3">
+																<label>Loss Function</label>
+																<select id="loss_function" class="form-control">
+																	{% for fn in loss_function_list %}
+																	<option value="{{ fn.name }}">{{ fn.display_name }}</option>
+																	{% endfor %}
+																</select>
+															</div>
+														</div>
+														<div class="row form-group">
+															<div class="col-3 border-right">
+																<div class="row form-group">
+																	<div class="col-12">
+																		<label>Number of Input Nodes</label>
+																		<input id="num_inputs" class="form-control" />
+																	</div>
+																	<div class="col-12">
+																		<label>Input Layer Activation Function</label>
+																		<select id="input_activation_function" class="form-control">
+																			{% for fn in activation_function_list %}
+																			<option value="{{ fn.name }}">{{ fn.display_name }}</option>
+																			{% endfor %}
+																		</select>
+																	</div>
+																</div>
+															</div>
+															<div class="col-3">
+																<div class="row form-group">
+																	<div class="col-12">
+																		<label>Number of Hidden Layers</label>
+																		<input id="num_hidden_layers" class="form-control" />
+																	</div>
+																</div>
+															</div>
+															<div class="col-3">
+																<div class="row form-group">
+																	<div class="col-12">
+																		<label>Number of Hidden Nodes</label>
+																		<input id="num_hidden_nodes" class="form-control" />
+																	</div>
+																	<div class="col-12">
+																		<label>Hidden Layer Activation Function</label>
+																		<select id="hidden_activation_function" class="form-control">
+																			{% for fn in activation_function_list %}
+																			<option value="{{ fn.name }}">{{ fn.display_name }}</option>
+																			{% endfor %}
+																		</select>
+																	</div>
+																</div>
+															</div>
+															<div class="col-3 border-left">
+																<div class="row form-group">
+																	<div class="col-12">
+																		<label>Number of Output Nodes</label>
+																		<input id="num_output_nodes" name="num_output_nodes" class="form-control" />
+																	</div>
+																	<div class="col-12">
+																		<label>Output Layer Activation Function</label>
+																		<select id="output_activation_function" class="form-control">
+																			{% for fn in activation_function_list %}
+																			<option value="{{ fn.name }}">{{ fn.display_name }}</option>
+																			{% endfor %}
+																		</select>
+																	</div>
+																</div>	
+															</div>
+														</div>
+														<div class="row form-group d-flex align-items-end">
+															<div class="col-1 offset-11">
+																<button id="btn_insert_network" class="btn btn-primary">Insert</button>
+															</div>
+														</div>
+													</div>
+													<div id="tabNetworkTrain" class="tabcontentnetwork">
+														<div class="row form-group d-flex align-items-end">
+															<div class="col-3">
+																<label>Number of Epochs</label>
+																<input id="num_epochs" class="form-control" />
+															</div>
+															<div class="col-3">
+																<label>Batch Size</label>
+																<input id="batch_size" class="form-control" />
+															</div>
+															<div class="col-3">
+																<label>Learning Rate</label>
+																<input id="learning_rate" class="form-control" />
+															</div>
+															<div class="col-3">
+																<button id="btn_train_network" class="btn btn-info">Train</button>
+															</div>
+														</div>
+
+														<div class="row form-group d-flex align-items-end">
+															<div class="col-3">
+																<label>Percent Testing Samples</label>
+																<input id="percent_testing" class="form-control" />
+															</div>
+															<div class="col-3">
+																<button id="btn_set_training_samples" class="btn btn-primary">Set Samples</button>
+															</div>
+														</div>
+													</div>
+													<div id="tabNetworkTest" class="tabcontentnetwork">
+														<div class="row form-group d-flex align-items-end">
+															<div class="col-3">
+																<label>Number of Samples</label>
+																<input id="num_samples" class="form-control" />
+															</div>
+															<div class="col-3">
+																<label>Show Individual Samples</label>
+																<input id="show_samples" class="form-control" type="checkbox" />
+															</div>
+															<div class="col-3">
+																<label>Test Samples Only</label>
+																<input id="test_samples_only" class="form-control" type="checkbox" />
+															</div>
+															<div class="col-3">
+																<button id="btn_test_network" class="btn btn-success">Test</button>
+															</div>
+														</div>
+														<div class="row">
+															<div class="col-12 text-center">
+																<h5>Results</h5>
+																<div class="table-responsive table-bordered table-condensed" style="height:260px">
+																	<table id="test_results" class="table table-sm" >
+																		<thead class="thead-light">
+																			<tr>
+																				<td>Sample ID</td>
+																				<td>Output Number</td>
+																				<td>Label Value</td>
+																				<td>Output Value</td>
+																				<td>SM Output Value</td>
+																				<td>Loss</td>
+																				<td>Accuracy</td>
+																			</tr>
+																		</thead>
+																		<tbody>
+																		</tbody>
+																	</table>
+																</div>
+															</div>
+														</div>
+													</div>
+												</div>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!--MESSAGE SECTION-->
+
+		<div class="row mt-3">
+			<div class="col-12">
+				<div class="card">
+					<div class="card-body">
+						<div class="row form-group">
+							<div class="col-11 text-center">
+								<h5>Messages</h5>
+							
+								<select id="messages" name="messages" size=10
+									style="word-wrap:break-word;width:100%;white-space:pre-wrap;">
+								</select>
+							</div>
+							<div class="col-1 d-flex flex-column align-items-center justify-content-around">
+								<button id="btn_test1" class="btn btn-warning mt-1">Test1</button>
+								<button id="btn_test2" class="btn btn-warning mt-1">Test2</button>
+								<button id="btn_clear_messages" class="btn btn-info mt-1">Clear</button>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		document.getElementById("btnTabDataset").click();
+		document.getElementById("btnTabDatasetInsert").click();
+		document.getElementById("btnTabNetworkInsert").click();
+	</script>
+
+</body>
+</html>

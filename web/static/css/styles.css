@@ -1,0 +1,25 @@
+body {
+ background-color: #FFF;
+  padding-top: 5rem;
+}
+
+.center {
+  padding: 3rem 1.5rem;
+  text-align: center;
+}
+
+thead th {
+	background-color: #4286f4;
+}
+
+.border-left {
+	border-left: thick solid #ff0000;
+}
+
+.border-right {
+	border-right: thick solid #ff0000;
+}
+
+.row-selected {
+	background-color: LightCyan;
+}
