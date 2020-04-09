@@ -5,14 +5,13 @@ import os
 import sys
 import json
 import select
-from persist import persist_data
-from OpenSSL import SSL
+#from OpenSSL import SSL
 
 from threading import Lock 
 from flask import Flask, render_template, request, send_file, send_from_directory, make_response
 from flask_cors import CORS, cross_origin
-from flask_socketio import SocketIO, emit
-from werkzeug import secure_filename
+from flask_socketio import SocketIO # as emit
+from werkzeug.utils import secure_filename
 from gevent import monkey
 monkey.patch_time()
 
@@ -36,7 +35,7 @@ def is_numeric(x):
 # Socket IO
 ######################
 
-socketio = SocketIO(app, async_mode='gevent', logger=True, engineio_logger=True, ping_timeout=60)
+socketio = SocketIO(app, _async_mode='gevent', logger=True, engineio_logger=True, ping_timeout=60)
 
 @socketio.on('connect', namespace='/mldbns')
 def socket_connect():
@@ -51,20 +50,20 @@ def socket_message(message):
 
     try:
         error_message = None
-        async = False   # db connection async boolean
+        _async = False   # db connection async boolean
         query = '' # query prepared for string formatting (only %s)
         query_values = [] # array or tuple of parameter values
         data = message['data']
 
         if(message['type'] == 'test'):
-            async = True
+            _async = True
             query = 'call sp_tmp(%s)'
             query_values = [data]
 
-            db_execute(socketio, query, query_values, async)
+            db_execute(socketio, query, query_values, _async)
 
         elif(message['type'] == 'refresh_dataset'):
-            async = False
+            _async = False
             query = """
                 SELECT  d.id,
                         d.name
@@ -73,7 +72,7 @@ def socket_message(message):
             query_values = None
             dataset_list = []
             
-            rows = db_execute(socketio, query, query_values, async)
+            rows = db_execute(socketio, query, query_values, _async)
             if rows is not None:
                 for row in rows:
                     try:                                     
@@ -86,7 +85,7 @@ def socket_message(message):
                 print('Refresh Dataset rows is None')    
 
         elif(message['type'] == 'refresh_network'):
-            async = False
+            _async = False
             query = """
                 SELECT  nna.id,
                         nna.dataset_id,
@@ -103,7 +102,7 @@ def socket_message(message):
             query_values = None
             network_list = []
             
-            rows = db_execute(socketio, query, query_values, async)
+            rows = db_execute(socketio, query, query_values, _async)
             if rows is not None:
                 for row in rows:
                     try:
@@ -128,7 +127,7 @@ def socket_message(message):
             
 
         elif(message['type'] == 'reset_network'):
-            async = False
+            _async = False
             
             # Input Validations
             while (True): # loop just to break from it on first error
@@ -148,10 +147,10 @@ def socket_message(message):
             elif (query == ""):
                 emit('message_event', {'data' : 'Cannot execute empty query'} )
             else:
-                db_execute(socketio, query, query_values, async)
+                db_execute(socketio, query, query_values, _async)
 
         elif(message['type'] == 'delete_dataset'):
-            async = False
+            _async = False
 
             # Input Validations
             while (True): # loop just to break from it on first error
@@ -171,10 +170,10 @@ def socket_message(message):
             elif (query == ""):
                 emit('message_event', {'data' : 'Cannot execute empty query'} )
             else:
-                db_execute(socketio, query, query_values, async)
+                db_execute(socketio, query, query_values, _async)
 
         elif(message['type'] == 'delete_network'):
-            async = False
+            _async = False
 
             # Input Validations
             while (True): # loop just to break from it on first error
@@ -194,11 +193,11 @@ def socket_message(message):
             elif (query == ""):
                 emit('message_event', {'data' : 'Cannot execute empty query'} )
             else:
-                db_execute(socketio, query, query_values, async)
+                db_execute(socketio, query, query_values, _async)
                 socket_message({'type':'refresh_network', 'data':''}) # force refresh
 
         elif(message['type'] == 'insert_dataset'):
-            async = False
+            _async = False
 
             # Input Validations
             while (True): # loop just to break from it on first error
@@ -228,11 +227,11 @@ def socket_message(message):
             elif (query == ""):
                 emit('message_event', {'data' : 'Cannot execute empty query'} )
             else:
-                db_execute(socketio, query, query_values, async)
+                db_execute(socketio, query, query_values, _async)
                 socket_message({'type':'refresh_dataset', 'data':''}) # force refresh
 
         elif(message['type'] == 'insert_network'):
-            async = False
+            _async = False
 
             # Input Validations
             while (True): # loop just to break from it on first error
@@ -289,12 +288,12 @@ def socket_message(message):
             elif (query == ""):
                 emit('message_event', {'data' : 'Cannot execute empty query'} )
             else:
-                db_execute(socketio, query, query_values, async)
+                db_execute(socketio, query, query_values, _async)
                 socket_message({'type':'refresh_network', 'data':''}) # force refresh
 
 
         elif(message['type'] == 'train_network'):
-            async = True
+            _async = True
 
             print("")
             print("&& TRAIN NETWORK &&")
@@ -338,11 +337,11 @@ def socket_message(message):
             elif (query == ""):
                 emit('message_event', {'data':'Cannot execute empty query'} )
             else:
-                db_execute(socketio, query, query_values, async)
+                db_execute(socketio, query, query_values, _async)
 
 
         elif(message['type'] == 'set_training_samples'):
-            async = False
+            _async = False
 
             # Input Validations
             while (True): # loop just to break from it on first error
@@ -366,11 +365,11 @@ def socket_message(message):
             elif (query == ""):
                 emit('message_event', {'data' : 'Cannot execute empty query'} )
             else:
-                db_execute(socketio, query, query_values, async)
+                db_execute(socketio, query, query_values, _async)
 
                 
         elif(message['type'] == 'test_network'):
-            async = False
+            _async = False
 
             # Input Validations
             while (True): # loop just to break from it on first error
@@ -421,7 +420,7 @@ def socket_message(message):
             else:
                 test_list = []
 
-                rows = db_execute(socketio, query, query_values, async)
+                rows = db_execute(socketio, query, query_values, _async)
                 if rows is not None:
                     for row in rows:
                         try:
@@ -439,10 +438,10 @@ def socket_message(message):
                 else:
                     print('Test Network rows is None')
         
-    except KeyError, e:
+    except KeyError as e:
         print('! Button Event Exception (Key Error): %s' % e)
         emit('message_event', {'data':'Button Input Error (Key Error): %s' % e} )
-    except Exception, e:
+    except Exception as e:
         print('! Button Event Exception: %s' % e)
         emit('message_event', {'data':'Button Input Error: %s' % e} )
 
@@ -479,11 +478,11 @@ def mldb_home():
     """
 
     try:
-        async = False
+        _async = False
         query_values = None
 
         # Get network data
-        rows = db_execute(socketio, network_query, query_values, async)
+        rows = db_execute(socketio, network_query, query_values, _async)
         if rows is not None:
             for row in rows:
                 try:
@@ -504,18 +503,18 @@ def mldb_home():
                     pass
 
         # Get dataset data
-        rows = db_execute(socketio, dataset_query, query_values, async)
+        rows = db_execute(socketio, dataset_query, query_values, _async)
         if rows is not None:
             for row in rows:
                 dataset_value = "ID:%d (%s)" % (row[0], row[1])
                 dataset_list.append({"id":row[0], "name":row[1], "display_name":dataset_value})
 
-    except psycopg2.DatabaseError, e:
-        print 'DB Error: %s' % e
+    except psycopg2.DatabaseError as e:
+        print('DB Error: %s' % e)
         socketio.emit('message_event', {'data':"DB Error: %s" % e}, namespace='/mldbns')
         #sys.exit(1)
-    except Exception, e:
-        print 'Other DB Error: %s' % e
+    except Exception as e:
+        print('Other DB Error: %s' % e)
         socketio.emit('message_event', {'data':"Exception: %s" % e}, namespace='/mldbns')
  
     activation_function_list = [{'name':'LINEAR', 'display_name':'Linear'},
@@ -558,18 +557,19 @@ def e404(e):
 ###############
 
 if __name__ == '__main__':  # Run App
-    pkey    = '/etc/apache2/ssl/server.key'
-    cert    = '/etc/apache2/ssl/server.crt'
-    context = SSL.Context(SSL.SSLv23_METHOD)
-    context.use_privatekey_file(pkey)
-    context.use_certificate_file(cert)
+    #pkey    = '/etc/apache2/ssl/server.key'
+    #cert    = '/etc/apache2/ssl/server.crt'
+    #context = SSL.Context(SSL.SSLv23_METHOD)
+    #context.use_privatekey_file(pkey)
+    #context.use_certificate_file(cert)
     #socketio.run(app)
     #app.run(debug=True, host='0.0.0.0', port=5000, ssl_context=(cert,pkey))
     socketio.run(app, 
                     debug=True,
                     host='0.0.0.0',
-                    port=5001, 
-                    certfile=cert,
-                    keyfile=pkey)
+                    port=5000 
+                    #,certfile=cert,
+                    #keyfile=pkey
+                    )
     #socketio.run(app, debug=False, host='0.0.0.0', ssl_context=(cert,pkey))
     

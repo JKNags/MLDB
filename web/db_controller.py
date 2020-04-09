@@ -44,7 +44,7 @@ def db_wait(conn):
         socketio.emit('message_event', notice_data, namespace='/mldbns')
 
 
-# Return async notices then close connection
+# Return _async notices then close connection
 def db_wait_close(conn, cur, close):
     global thread
     global thread_lock
@@ -64,7 +64,7 @@ def db_wait_close(conn, cur, close):
             #print("\tPOLL_OK")
             try:
                 rows = cur.fetchall()
-            except Exception, e:
+            except Exception as e:
                 pass # query could not return rows but not an error
             break
         elif state == psycopg2.extensions.POLL_WRITE:
@@ -94,7 +94,7 @@ def db_wait_close(conn, cur, close):
 
 
 # Execute query
-def db_execute(_socketio, query, query_values, async):
+def db_execute(_socketio, query, query_values, _async):
     global socketio
     global thread
     global thread_lock
@@ -103,11 +103,11 @@ def db_execute(_socketio, query, query_values, async):
     cur = None
     rows = None
 
-    print("Attempting to exec (%s) query [%s] with params %s" % ('async' if async else 'sync',query,query_values))
+    print("Attempting to exec (%s) query [%s] with params %s" % ('async' if _async else 'sync',query,query_values))
 
     try:
-        conn = psycopg2.connect(DB_CONN_STRING, async=async)
-        if (async):
+        conn = psycopg2.connect(DB_CONN_STRING, async_=_async)
+        if (_async):
             db_wait(conn)
         else:
             #conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
@@ -115,13 +115,13 @@ def db_execute(_socketio, query, query_values, async):
         cur = conn.cursor() 
 
         cur.execute(query, query_values)
-        if (async):
+        if (_async):
             rows = db_wait_close(conn, cur, True)
         else:
             # Get any returned data
             try:
                 rows = cur.fetchall()
-            except Exception, e:
+            except Exception as e:
                 pass # query could not return rows but not an error
 
             # Print any notices
@@ -144,7 +144,7 @@ def db_execute(_socketio, query, query_values, async):
 
         socketio.emit('message_event', {'data' : 'DB Activity finished successfully'}, namespace='/mldbns')
 
-    except psycopg2.DatabaseError, e:
+    except psycopg2.DatabaseError as e:
         print('! psycopg2 Error: %s' % e)
         print('Error-Closing DB connection')
         socketio.emit('message_event', {'data' : 'DB ERROR: %s' % e}, namespace='/mldbns')
@@ -157,7 +157,7 @@ def db_execute(_socketio, query, query_values, async):
         # Reset thread
         thread = None
         thread_lock = Lock()
-    except Exception, e:
+    except Exception as e:
         print('! DB Exception: %s' % e)
         socketio.emit('message_event', {'data' : 'EXCEPTION: %s' % e}, namespace='/mldbns')
 
