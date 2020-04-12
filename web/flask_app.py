@@ -36,7 +36,7 @@ def is_numeric(x):
 ######################
 
 socketio = SocketIO(app, _async_mode='gevent', logger=True, 
-    engineio_logger=True, ping_timeout=60)
+    engineio_logger=True, ping_timeout=180)
 
 @socketio.on('connect', namespace='/mldbns')
 def socket_connect():
@@ -69,6 +69,7 @@ def socket_message(message):
                 SELECT  d.id,
                         d.name
                 FROM dataset d
+                ORDER BY ID DESC
             """
             query_values = None
             dataset_list = []
@@ -172,6 +173,7 @@ def socket_message(message):
                 socketio.emit('message_event', {'data' : 'Cannot execute empty query'}, namespace='/mldbns')
             else:
                 db_execute(socketio, query, query_values, _async)
+                socket_message({'type':'refresh_dataset', 'data':''}) # force refresh
 
         elif(message['type'] == 'delete_network'):
             _async = False
@@ -211,7 +213,7 @@ def socket_message(message):
                 if (data['label_column_names'] is None or data['label_column_names'] == ''):
                     error_message = 'INPUT VALIDATION: Label Column Names is required.'; break
                 
-                query = 'call sp_insert_dataset(%s,%s,%s,%s)'
+                query = 'call sp_insert_dataset(%s,%s,%s,%s,%s,%s)'
                 query_values = [
                     data['dataset_name'],
                     data['dataset_source_table_name'],
@@ -451,7 +453,6 @@ def socket_message(message):
 # /mldb HOME
 ######################
 @app.route('/mldb', methods=['GET'])
-@cross_origin()
 def mldb_home():
     network_list = []
     dataset_list = []
@@ -476,7 +477,7 @@ def mldb_home():
                 normalize_features,
                 normalize_labels
         FROM dataset
-        ORDER BY id
+        ORDER BY id DESC
     """
 
     try:

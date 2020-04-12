@@ -47,6 +47,7 @@
 			});
 
 			socket.on('refresh_dataset_event', function(msg) {
+				// Refresh Table
 				$('#datasets').find('tbody').empty();
 				for (idx = 0; idx < msg.data.length; idx++) {
 					var row_data = '<tr class="clickable-row" >'
@@ -55,6 +56,13 @@
 									+ msg.data[idx]['name'] + '</td></tr>';
 					$('#datasets').find('tbody').append(row_data)
 				}
+
+				// Refresh Dropdown
+				$('#dataset_id').empty();
+				for (idx = 0; idx < msg.data.length; idx++) {
+					var row_data = '<option value="'+ msg.data[idx]['id'] +'">ID:'+ msg.data[idx]['id'] + ' (' + msg.data[idx]['name'] + ')</option>';
+					$('#dataset_id').append(row_data)
+				}			
 			});
 
 			socket.on('refresh_network_event', function(msg) {

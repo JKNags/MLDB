@@ -59,6 +59,7 @@ def db_wait_close(conn, cur, close):
             notice = conn.notices.pop(0)
             socketio.emit('message_event', {'data': notice}, namespace='/mldbns')
             print("#### Notice::%s"%notice)
+            socketio.sleep(0.001)
 
         if state == psycopg2.extensions.POLL_OK:
             #print("\tPOLL_OK")
@@ -76,7 +77,7 @@ def db_wait_close(conn, cur, close):
         else:
             raise psycopg2.OperationalError("poll() returned %s" % state)
 
-        socketio.sleep(0.001)
+        socketio.sleep(0.01)
 
     if close:
         # Close DB objects
