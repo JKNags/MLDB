@@ -10,3 +10,8 @@ __pycache__
 *.png
 *.jpeg
 *.jpg
+*.xml
+*.bbl
+*.blg
+*.gz
+*.toc
