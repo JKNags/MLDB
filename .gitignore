@@ -2,3 +2,11 @@
 __pycache__
 *.tex
 *.pyc
+*.aux
+*.dvi
+*.log
+*.out
+*.drawio
+*.png
+*.jpeg
+*.jpg
