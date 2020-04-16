@@ -5,7 +5,7 @@
 -- Dumped from database version 12.2
 -- Dumped by pg_dump version 12.2
 
--- Started on 2020-04-15 12:54:05
+-- Started on 2020-04-16 10:36:41
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -35,7 +35,7 @@ CREATE EXTENSION IF NOT EXISTS adminpack WITH SCHEMA pg_catalog;
 
 
 --
--- TOC entry 3116 (class 0 OID 0)
+-- TOC entry 3117 (class 0 OID 0)
 -- Dependencies: 1
 -- Name: EXTENSION adminpack; Type: COMMENT; Schema: -; Owner: -
 --
@@ -52,7 +52,7 @@ CREATE EXTENSION IF NOT EXISTS hstore WITH SCHEMA public;
 
 
 --
--- TOC entry 3117 (class 0 OID 0)
+-- TOC entry 3118 (class 0 OID 0)
 -- Dependencies: 4
 -- Name: EXTENSION hstore; Type: COMMENT; Schema: -; Owner: -
 --
@@ -69,7 +69,7 @@ CREATE EXTENSION IF NOT EXISTS tablefunc WITH SCHEMA public;
 
 
 --
--- TOC entry 3118 (class 0 OID 0)
+-- TOC entry 3119 (class 0 OID 0)
 -- Dependencies: 3
 -- Name: EXTENSION tablefunc; Type: COMMENT; Schema: -; Owner: -
 --
@@ -676,6 +676,296 @@ BEGIN
 		JOIN statistics_cte sc ON ls.node_num = sc.label_num
 		WHERE layer_num = lv_num_layers;
 
+	
+	-- Drop temp tables
+	DROP TABLE tmp_layer_state;	
+	
+END;
+$$;
+
+
+--
+-- TOC entry 359 (class 1255 OID 35893)
+-- Name: fx_forward_network(integer, double precision[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fx_forward_network(v_network_id integer, v_features double precision[]) RETURNS TABLE(output_num integer, output double precision, sm_output double precision)
+    LANGUAGE plpgsql
+    AS $$
+DECLARE 
+	/*
+	v_network_id integer,
+	v_features double precision[]
+	*/
+	lv_dataset_id int;
+	lv_input_activation_fn text;
+	lv_hidden_activation_fn text;
+	lv_output_activation_fn text;
+	lv_normalize_features text;
+	lv_loss_fn text;
+	lv_num_layers integer;
+	lv_layer_iter RECORD;
+BEGIN
+
+	---------------------------
+	-- Initialization
+	---------------------------
+	
+	-- Get network information
+	SELECT 
+		dataset_id,
+		activation_functions[1],
+		activation_functions[2],
+		activation_functions[3],
+		loss_function
+	INTO
+		lv_dataset_id,
+		lv_input_activation_fn,
+		lv_hidden_activation_fn,
+		lv_output_activation_fn,
+		lv_loss_fn
+	FROM neural_network_architecture
+	WHERE id = v_network_id;
+	
+	-- Calculate layers in network
+	SELECT MAX(layer_num)
+	INTO lv_num_layers
+	FROM neural_network
+	WHERE network_id = v_network_id;
+	
+   	-- Get dataset information
+	SELECT
+		normalize_features
+	INTO
+		lv_normalize_features
+	FROM dataset
+	WHERE id = lv_dataset_id;
+	
+	-- Declare temp tables
+	CREATE TEMP TABLE tmp_layer_state
+	(
+		layer_num int,
+		node_num int,
+		result double precision,   -- result of matrix multiplication before activation fn
+		activity double precision   -- result after activation function
+	);
+
+	---------------------------
+	-- Forward Propagation
+	---------------------------
+	
+	-- Insert input node weights into table
+	WITH 
+	statistics_cte
+	AS (SELECT f.feature_num,
+				 f.feature_mean_value,
+				 f.feature_std_value,
+				 f.feature_max_value,
+				 f.feature_min_value
+		FROM dataset d,
+			UNNEST(feature_mean, feature_std, feature_max, feature_min)
+				WITH ORDINALITY f(feature_mean_value, feature_std_value, feature_max_value, feature_min_value, feature_num)
+	   WHERE d.id = lv_dataset_id),
+	feature_norm_cte 
+	AS (SELECT f.feature_num,
+				CASE WHEN lv_normalize_features = 'ZSCORE'
+						THEN (f.feature_value - COALESCE(s.feature_mean_value,0)) / CASE WHEN (s.feature_std_value = 0 OR s.feature_std_value IS NULL) THEN 1 ELSE s.feature_std_value END   -- normalized value
+					WHEN lv_normalize_features = 'MINMAX'
+						THEN (f.feature_value - COALESCE(s.feature_max_value,0)) / (s.feature_max_value - s.feature_min_value)   -- normalized value
+				END AS feature_value
+		FROM UNNEST(v_features) WITH ORDINALITY AS f(feature_value, feature_num)
+		LEFT JOIN statistics_cte s ON f.feature_num = s.feature_num),
+	feature_all_cte 
+	AS (SELECT feature_num,
+				feature_value
+		FROM feature_norm_cte
+	   
+	   	UNION ALL
+		-- Augment inputs with 1-valued features to match with bias
+	   	SELECT MAX(feature_num) + 1,
+				1   -- feature_value
+		FROM feature_norm_cte),
+	layer_cte
+	AS (
+		SELECT 1 AS layer_num,
+				nn.weight_num, 
+				-- (x - mean) / std   for input normalization
+				SUM(fa.feature_value * nn.weight) AS result
+		FROM feature_all_cte fa
+		JOIN vw_neural_network nn ON nn.node_num = fa.feature_num   -- line up inputs and weights
+		WHERE nn.network_id = v_network_id   -- network id parameter
+			AND nn.layer_num = 1   -- input layer
+		GROUP BY nn.weight_num
+	)
+	-- insert result of matrix multiplication in table for this layer
+	INSERT INTO tmp_layer_state (layer_num, node_num, result, activity)
+	SELECT layer_num,
+			weight_num,
+			result,
+			CASE WHEN lv_input_activation_fn = 'LINEAR'
+					THEN result
+				 WHEN lv_input_activation_fn = 'TANH'
+					THEN fn_tanh(result)
+				 WHEN lv_input_activation_fn = 'RELU'
+					THEN fn_relu(result)
+				 WHEN lv_input_activation_fn = 'SIGMOID'
+					THEN fn_sigmoid(result)
+				ELSE result
+			END   -- determine activation function for input layer
+	FROM layer_cte;
+	
+	
+	-- Loop across layers for forward propagation
+	FOR lv_layer_iter IN
+		SELECT generate_series(2, lv_num_layers-1) AS layer_num
+	LOOP
+		WITH 
+		prev_layer_cte
+		AS (SELECT layer_num, node_num, activity
+			FROM tmp_layer_state ls
+			WHERE ls.layer_num = lv_layer_iter.layer_num - 1
+
+			UNION ALL
+
+			-- Append 1-valued inputs to match with bias
+			SELECT layer_num,
+					MAX(node_num) + 1,   -- extra node in next layer
+					1    -- activity
+			FROM tmp_layer_state ls
+			WHERE ls.layer_num = lv_layer_iter.layer_num - 1
+			GROUP BY layer_num),
+		layer_cte AS (	
+			SELECT lv_layer_iter.layer_num,
+					nn.weight_num, 
+					-- z = a * W
+					SUM(ls.activity * nn.weight) AS result
+			FROM prev_layer_cte ls
+			JOIN vw_neural_network nn ON nn.node_num = ls.node_num
+			WHERE nn.network_id = v_network_id 
+				AND nn.layer_num = lv_layer_iter.layer_num   -- correct network layer
+			GROUP BY nn.weight_num)
+		-- insert result of matrix multiplication in table for this layer
+		INSERT INTO tmp_layer_state  (layer_num, node_num, result, activity)
+		SELECT layer_num,
+				weight_num,
+				result,
+				CASE WHEN lv_hidden_activation_fn = 'LINEAR'
+						THEN result
+					 WHEN lv_hidden_activation_fn = 'TANH'
+						THEN fn_tanh(result)
+					 WHEN lv_hidden_activation_fn = 'RELU'
+						THEN fn_relu(result)
+					 WHEN lv_hidden_activation_fn = 'SIGMOID'
+						THEN fn_sigmoid(result)
+					 ELSE result
+				END   -- determine activation function for hidden layer(s)
+		FROM layer_cte;
+			
+	END LOOP;	-- end hidden layer loop
+	
+	
+	-- Calculate last layer and network outputs
+	WITH
+	prev_layer_cte
+	AS (SELECT layer_num, node_num, activity
+		FROM tmp_layer_state ls
+		WHERE ls.layer_num = lv_num_layers - 1
+
+		UNION ALL
+		-- Append 1-valued inputs to match with bias
+		SELECT layer_num,
+				MAX(node_num) + 1,   -- extra node in next layer
+				1    -- activity
+		FROM tmp_layer_state ls
+		WHERE ls.layer_num = lv_num_layers - 1
+		GROUP BY layer_num),
+	layer_cte 
+	AS (SELECT lv_num_layers AS layer_num,
+				nn.weight_num,
+				-- z = a * W
+				SUM(ls.activity * nn.weight) AS result
+		FROM prev_layer_cte ls
+		JOIN vw_neural_network nn ON nn.node_num = ls.node_num
+		WHERE nn.network_id = v_network_id 
+			AND nn.layer_num = lv_num_layers   -- correct network layer
+		GROUP BY nn.weight_num)
+	-- insert result of matrix multiplication in table for this layer
+	INSERT INTO tmp_layer_state (layer_num, node_num, result, activity)
+	SELECT layer_num,
+			weight_num,
+			result,
+			CASE WHEN lv_output_activation_fn = 'LINEAR'
+					THEN result
+				 WHEN lv_output_activation_fn = 'TANH'
+					THEN fn_tanh(result)
+				 WHEN lv_output_activation_fn = 'RELU'
+					THEN fn_relu(result)
+				 WHEN lv_output_activation_fn = 'SIGMOID'
+					THEN fn_sigmoid(result)
+				 ELSE result
+			END   -- determine activation function for output layer(s)
+	FROM layer_cte;
+	
+	
+	IF lv_loss_fn = 'MSE'
+	THEN
+		RETURN QUERY
+			WITH
+			statistics_cte 
+			AS (
+				SELECT label_num,
+						label_min_value,
+						label_max_value
+				FROM dataset ds,
+					UNNEST(label_min, label_max) WITH ORDINALITY AS l(label_min_value, label_max_value, label_num)
+				WHERE ds.id = lv_dataset_id),
+			output_cte
+			AS (SELECT CAST(sc.label_num AS int) AS _output_num,
+						ls.activity * (sc.label_max_value - sc.label_min_value) + sc.label_min_value AS _output,
+						ls.activity
+						--(v_label - sc.label_min_value) / (sc.label_max_value - sc.label_min_value) AS label_norm  --* (sc.label_max_value - sc.label_min_value) + sc.label_min_value,
+				FROM tmp_layer_state ls
+				JOIN statistics_cte sc ON ls.node_num = sc.label_num
+				WHERE layer_num = lv_num_layers)
+			SELECT _output_num,
+					_output,
+					_output,
+					-- Loss = (1/2) (y - _y)^2
+					POWER(label_norm - activity, 2) / 2
+			FROM output_cte;
+			
+			/*SELECT CAST(sc.label_num AS int),
+					ls.activity * (sc.label_max_value - sc.label_min_value) + sc.label_min_value,
+					NULL::float,
+					v_label
+			FROM tmp_layer_state ls
+			JOIN statistics_cte sc ON ls.node_num = sc.label_num
+			WHERE layer_num = lv_num_layers;*/
+			
+	ELSIF lv_loss_fn = 'CROSS_ENTROPY'
+	THEN
+		RETURN QUERY
+			--o_result_num integer, o_result float, o_sm_result float, o_loss float) 
+
+			-- Choose highest valued activity
+			WITH 
+			softmax_cte
+			AS (SELECT node_num,
+						activity,
+						EXP(activity) / (SUM(EXP(activity)) OVER ()) AS sm_result,
+						ROW_NUMBER() OVER (PARTITION BY layer_num ORDER BY activity DESC) AS row_num
+				FROM tmp_layer_state ls
+				WHERE layer_num = lv_num_layers)
+			SELECT node_num,
+					activity,
+					sm_result
+			FROM softmax_cte
+			WHERE row_num = 1   -- Get active node_num corresponding to class number
+			ORDER BY node_num;
+	ELSE
+		RETURN QUERY
+			SELECT NULL,NULL,NULL,NULL;
+	END IF;
 	
 	-- Drop temp tables
 	DROP TABLE tmp_layer_state;	
@@ -1642,7 +1932,7 @@ $$;
 
 
 --
--- TOC entry 358 (class 1255 OID 16574)
+-- TOC entry 357 (class 1255 OID 16574)
 -- Name: sp_insert_dataset(text, text, text, text, text, text); Type: PROCEDURE; Schema: public; Owner: -
 --
 
@@ -2036,7 +2326,7 @@ $$;
 
 
 --
--- TOC entry 357 (class 1255 OID 16580)
+-- TOC entry 358 (class 1255 OID 16580)
 -- Name: sp_train_network(integer, integer, integer, double precision); Type: PROCEDURE; Schema: public; Owner: -
 --
 
@@ -2824,7 +3114,7 @@ $$;
 
 
 --
--- TOC entry 861 (class 1255 OID 16586)
+-- TOC entry 862 (class 1255 OID 16586)
 -- Name: mult(double precision); Type: AGGREGATE; Schema: public; Owner: -
 --
 
@@ -3309,7 +3599,7 @@ CREATE TABLE public.wine_quality (
 
 
 --
--- TOC entry 2957 (class 2606 OID 16729)
+-- TOC entry 2958 (class 2606 OID 16729)
 -- Name: dataset dataset_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3318,7 +3608,7 @@ ALTER TABLE ONLY public.dataset
 
 
 --
--- TOC entry 2961 (class 2606 OID 16731)
+-- TOC entry 2962 (class 2606 OID 16731)
 -- Name: iris iris_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3327,7 +3617,7 @@ ALTER TABLE ONLY public.iris
 
 
 --
--- TOC entry 2966 (class 2606 OID 16733)
+-- TOC entry 2967 (class 2606 OID 16733)
 -- Name: neural_network_architecture neural_network_architecture_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3336,7 +3626,7 @@ ALTER TABLE ONLY public.neural_network_architecture
 
 
 --
--- TOC entry 2964 (class 2606 OID 16735)
+-- TOC entry 2965 (class 2606 OID 16735)
 -- Name: neural_network pk_neural_network; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3345,7 +3635,7 @@ ALTER TABLE ONLY public.neural_network
 
 
 --
--- TOC entry 2970 (class 2606 OID 16737)
+-- TOC entry 2971 (class 2606 OID 16737)
 -- Name: sample sample_flat_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3354,7 +3644,7 @@ ALTER TABLE ONLY public.sample
 
 
 --
--- TOC entry 2972 (class 2606 OID 16739)
+-- TOC entry 2973 (class 2606 OID 16739)
 -- Name: sample1 sample_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3363,7 +3653,7 @@ ALTER TABLE ONLY public.sample1
 
 
 --
--- TOC entry 2974 (class 2606 OID 16741)
+-- TOC entry 2975 (class 2606 OID 16741)
 -- Name: sample_test sample_test_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3372,7 +3662,7 @@ ALTER TABLE ONLY public.sample_test
 
 
 --
--- TOC entry 2959 (class 2606 OID 16743)
+-- TOC entry 2960 (class 2606 OID 16743)
 -- Name: dataset unique_dataset_name; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3381,7 +3671,7 @@ ALTER TABLE ONLY public.dataset
 
 
 --
--- TOC entry 2968 (class 2606 OID 16745)
+-- TOC entry 2969 (class 2606 OID 16745)
 -- Name: neural_network_architecture uq_neural_network_architecture_name; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3390,7 +3680,7 @@ ALTER TABLE ONLY public.neural_network_architecture
 
 
 --
--- TOC entry 2962 (class 1259 OID 16746)
+-- TOC entry 2963 (class 1259 OID 16746)
 -- Name: ix_neural_network_net_layer_node; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3398,7 +3688,7 @@ CREATE INDEX ix_neural_network_net_layer_node ON public.neural_network USING btr
 
 
 --
--- TOC entry 2975 (class 2606 OID 16747)
+-- TOC entry 2976 (class 2606 OID 16747)
 -- Name: neural_network_architecture fk_nna_dataset_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3407,7 +3697,7 @@ ALTER TABLE ONLY public.neural_network_architecture
 
 
 --
--- TOC entry 2978 (class 2606 OID 16752)
+-- TOC entry 2979 (class 2606 OID 16752)
 -- Name: sample_feature sample_features_sample_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3416,7 +3706,7 @@ ALTER TABLE ONLY public.sample_feature
 
 
 --
--- TOC entry 2976 (class 2606 OID 16757)
+-- TOC entry 2977 (class 2606 OID 16757)
 -- Name: sample sample_flat_dataset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3425,7 +3715,7 @@ ALTER TABLE ONLY public.sample
 
 
 --
--- TOC entry 2979 (class 2606 OID 16762)
+-- TOC entry 2980 (class 2606 OID 16762)
 -- Name: sample_label sample_labels_sample_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3434,7 +3724,7 @@ ALTER TABLE ONLY public.sample_label
 
 
 --
--- TOC entry 2980 (class 2606 OID 16767)
+-- TOC entry 2981 (class 2606 OID 16767)
 -- Name: sample_test sample_test_dataset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3443,7 +3733,7 @@ ALTER TABLE ONLY public.sample_test
 
 
 --
--- TOC entry 2977 (class 2606 OID 16772)
+-- TOC entry 2978 (class 2606 OID 16772)
 -- Name: sample1 sample_training_data_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3451,7 +3741,7 @@ ALTER TABLE ONLY public.sample1
     ADD CONSTRAINT sample_training_data_id_fkey FOREIGN KEY (training_data_id) REFERENCES public.dataset(id);
 
 
--- Completed on 2020-04-15 12:54:05
+-- Completed on 2020-04-16 10:36:42
 
 --
 -- PostgreSQL database dump complete
