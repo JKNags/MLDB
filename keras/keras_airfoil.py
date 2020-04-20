@@ -48,7 +48,7 @@ try:
 	model = Sequential()
 	model.add(Dense(8, activation='tanh', input_shape=(5,),
 		kernel_initializer=initializers.RandomUniform(-0.05, 0.05), bias_initializer=initializers.Constant(0.0)))
-	#model.add(Dense(8, activation='tanh',
+	#model.add(Dense(6, activation='tanh',
 	#	kernel_initializer=initializers.RandomUniform(-0.05, 0.05), bias_initializer=initializers.Constant(0.0)))
 	#model.add(Dense(8, activation='tanh',
 	#	kernel_initializer=initializers.RandomUniform(-0.05, 0.05), bias_initializer=initializers.Constant(0.0)))
@@ -70,9 +70,9 @@ try:
 	shuffle = False
 	verbose = 0
 	#out_file_name = "%s_E%d_M%s.txt" % (datetime.now().strftime('%m%d%H%M'), num_epochs, model_abbrev)
-	out_file_name = "airfoil_E%d_M%s.txt" % (num_epochs, model_abbrev)
-	out_file = open(os.path.join("outputs", out_file_name), 'w')
-	print("File Name: %s" % out_file_name)
+	#out_file_name = "airfoil_E%d_M%s.txt" % (num_epochs, model_abbrev)
+	#out_file = open(os.path.join("outputs", out_file_name), 'w')
+	#print("File Name: %s" % out_file_name)
 
 	
 	# Test untrained model
@@ -82,8 +82,8 @@ try:
 		verbose=0, batch_size=batch_size)
 	print("Pre-Training:	%f	%f	%f	%f" \
 		% (train_eval[0], train_eval[1], test_eval[0], test_eval[1]))
-	out_file.write("%f	%f	%f	%f\n" \
-		% (train_eval[0], train_eval[1], test_eval[0], test_eval[1]))
+	#out_file.write("%f	%f	%f	%f\n" \
+	#	% (train_eval[0], train_eval[1], test_eval[0], test_eval[1]))
 
 	# Train model
 	history = model.fit(train_features[:], train_labels[:], shuffle=shuffle,
@@ -97,12 +97,12 @@ try:
 	#print("KEYS: %s" % str(history.history.keys()))
 
 	# Training Data
-	for epoch in range(num_epochs):
+	#for epoch in range(num_epochs):
 		#print("Epoch %d::  Loss: %.4f, Accuracy: %.4f" \
 		#	% (epoch+1, history.history['loss'][epoch], history.history['accuracy'][epoch]))
-		out_file.write("%f	%f	%f	%f\n" \
-			% (history.history['loss'][epoch], history.history['accuracy'][epoch],
-				history.history['val_loss'][epoch], history.history['val_accuracy'][epoch]))
+		#out_file.write("%f	%f	%f	%f\n" \
+		#	% (history.history['loss'][epoch], history.history['accuracy'][epoch],
+		#		history.history['val_loss'][epoch], history.history['val_accuracy'][epoch]))
 
 	print("Final Epoch: Loss:%.4f, Acc:%.4f, Val Loss:%.4f, Val Acc:%.4f" \
 		% (history.history['loss'][-1], history.history['accuracy'][-1],
@@ -113,8 +113,8 @@ try:
 		verbose=0, batch_size=batch_size)
 	test_eval = model.evaluate(test_features[:], test_labels[:], 
 		verbose=0, batch_size=batch_size)
-	out_file.write("%f	%f	%f	%f" \
-		% (train_eval[0], train_eval[1], test_eval[0], test_eval[1]))
+	#out_file.write("%f	%f	%f	%f" \
+	#	% (train_eval[0], train_eval[1], test_eval[0], test_eval[1]))
 		
 	print("Train Data:  Loss:%.4f, MSE:%.4f" % (train_eval[0],train_eval[1]))
 	print("Test Data:   Loss:%.4f, MSE:%.4f" % (test_eval[0],test_eval[1]))
@@ -125,6 +125,6 @@ try:
 			% ([],label, pred, 100.0 - abs(label-pred) / label * 100))
 	"""
 
-	out_file.close()
+	#out_file.close()
 except Exception as e:
 	print("Exception:: %s" % e)
